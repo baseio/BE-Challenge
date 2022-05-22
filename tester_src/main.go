@@ -4,11 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/go-redis/redis/v8"
-	"github.com/google/uuid"
-	"github.com/valyala/fasthttp"
-	"github.com/valyala/fastrand"
-	"go.uber.org/atomic"
 	"io"
 	"io/ioutil"
 	"math/rand"
@@ -19,6 +14,12 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/go-redis/redis/v8"
+	"github.com/google/uuid"
+	"github.com/valyala/fasthttp"
+	"github.com/valyala/fastrand"
+	"go.uber.org/atomic"
 )
 
 type Card struct {
@@ -47,17 +48,17 @@ func main() {
 	}()
 	waitForNodeProccess()
 	store := generateCardsStore(cards)
+	userAllCardsStore := generateAllCardsStore(store)
 	flushRedis()
 	ticker := time.NewTicker(time.Second)
 	go startRequestCounter(ticker)
 	t := time.Now()
 	userIds := scanUsers(store)
 	queryResults := queryUsers(userIds)
-	parseResults(store, queryResults)
+	parseResults(store, userAllCardsStore, queryResults)
 	timePassed := time.Since(t)
 	ticker.Stop()
 	fmt.Printf(`test took: %d milliseconds| %0.2f seconds`, timePassed.Milliseconds(), timePassed.Seconds())
-
 }
 
 func flushRedis() *redis.StatusCmd {
@@ -83,6 +84,16 @@ func generateCardsStore(cards []Card) *sync.Map {
 		store.Store(uuid.NewString(), &usersCards)
 	}
 	return store
+}
+
+func generateAllCardsStore(store *sync.Map) *sync.Map {
+	fmt.Println("generating in memory all cards store")
+	usersAllCardsStore := sync.Map{}
+	store.Range(func(key, value interface{}) bool {
+		usersAllCardsStore.Store(key, atomic.NewInt32(0))
+		return true
+	})
+	return &usersAllCardsStore
 }
 
 func waitForNodeProccess() {
@@ -201,7 +212,7 @@ func queryUsers(ids chan string) chan result {
 	return output
 }
 
-func parseResults(store *sync.Map, results chan result) {
+func parseResults(store *sync.Map, userAllCardsStore *sync.Map, results chan result) {
 	wg := &sync.WaitGroup{}
 	for i := 0; i < 128; i++ {
 		wg.Add(1)
@@ -209,7 +220,7 @@ func parseResults(store *sync.Map, results chan result) {
 			defer wg.Done()
 			for res := range results {
 				if res.cardID == `ALL CARDS` {
-					checkAllCards(store, res.userID)
+					checkAllCards(store, userAllCardsStore, res.userID)
 					continue
 				}
 				addCards(store, res)
@@ -223,13 +234,31 @@ func parseResults(store *sync.Map, results chan result) {
 		fmt.Println("still have users left with cards missing")
 		return false
 	})
+
+	userAllCardsStore.Range(func(key, value interface{}) bool {
+		if value.(*atomic.Int32).Load() > 5 {
+			fmt.Println("some users got ALL CARDS more than five times")
+			return false
+		}
+		return true
+	})
 }
 
-func checkAllCards(store *sync.Map, uid string) {
+func checkAllCards(store *sync.Map, userAllCardsStore *sync.Map, uid string) {
 	data, ok := store.Load(uid)
 	if !ok {
 		return
 	}
+
+	defer func() {
+		counter, ok := userAllCardsStore.Load(uid)
+		if !ok {
+			fmt.Println(uid, "all cards for not found")
+		}
+
+		counter.(*atomic.Int32).Inc()
+	}()
+
 	allCardsPresent := true
 	data.(*sync.Map).Range(func(key, value interface{}) bool {
 		if value.(*atomic.Int32).Load() != 1 {
