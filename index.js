@@ -48,8 +48,6 @@ process.on("SIGINT", shutdownHandler);
 process.on("SIGTERM", shutdownHandler);
 
 const userIndexes = {};
-const rpath = "/card_add?";
-const pathMatch = new RegExp(rpath);
 
 const router = async (req, res) => {
   res.statusCode = 200;
@@ -65,8 +63,6 @@ const router = async (req, res) => {
   }
   res.end(userSawAllCards);
   return;
-
-  res.end(JSON.stringify({ ready: true }));
 };
 
 /* Define the servers and start listening to requests */
