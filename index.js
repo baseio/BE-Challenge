@@ -54,25 +54,17 @@ const pathMatch = new RegExp(rpath);
 const router = async (req, res) => {
   res.statusCode = 200;
 
-  if (
-    req.url.startsWith(rpath) ||
-    req.url.includes(rpath) ||
-    pathMatch.test(req.url)
-  ) {
-    const userId = req.url.split("id=")[1];
+  if (!userIndexes[req.url]) {
+    userIndexes[req.url] = 0;
+  }
+  const idx = ++userIndexes[req.url];
 
-    if (!userIndexes[userId]) {
-      userIndexes[userId] = 0;
-    }
-    const idx = (userIndexes[userId] += 1);
-
-    if (idx <= allCardsLength) {
-      res.end(allCards[idx - 1]);
-      return;
-    }
-    res.end(userSawAllCards);
+  if (idx <= allCardsLength) {
+    res.end(allCards[idx - 1]);
     return;
   }
+  res.end(userSawAllCards);
+  return;
 
   res.end(JSON.stringify({ ready: true }));
 };
